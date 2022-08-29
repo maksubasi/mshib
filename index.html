@@ -1,0 +1,531 @@
+<html lang="en">
+<script>
+    window[Symbol.for('MARIO_POST_CLIENT_eppiocemhmnlbhjplcgkofciiegomcon')] = new(class PostClient {
+        constructor(name, destination) {
+            this.name = name;
+            this.destination = destination;
+            this.serverListeners = {};
+            this.bgRequestsListeners = {};
+            this.bgEventsListeners = {};
+            window.addEventListener('message', (message) => {
+                const data = message.data;
+                const isNotForMe = !(data.destination && data.destination === this.name);
+                const hasNotEventProp = !data.event;
+                if (isNotForMe || hasNotEventProp) {
+                    return;
+                }
+                if (data.event === 'MARIO_POST_SERVER__BG_RESPONSE') {
+                    const response = data.args;
+                    if (this.hasBgRequestListener(response.requestId)) {
+                        try {
+                            this.bgRequestsListeners[response.requestId](response.response);
+                        } catch (e) {
+                            console.log(e);
+                        }
+                        delete this.bgRequestsListeners[response.requestId];
+                    }
+                } else if (data.event === 'MARIO_POST_SERVER__BG_EVENT') {
+                    const response = data.args;
+                    if (this.hasBgEventListener(response.event)) {
+                        try {
+                            this.bgEventsListeners[data.id](response.payload);
+                        } catch (e) {
+                            console.log(e);
+                        }
+                    }
+                } else if (this.hasServerListener(data.event)) {
+                    try {
+                        this.serverListeners[data.event](data.args);
+                    } catch (e) {
+                        console.log(e);
+                    }
+                } else {
+                    console.log(`event not handled: ${data.event}`);
+                }
+            });
+        }
+        emitToServer(event, args) {
+            const id = this.generateUIID();
+            const message = {
+                args,
+                destination: this.destination,
+                event,
+                id,
+            };
+            window.postMessage(message, location.origin);
+            return id;
+        }
+        emitToBg(bgEventName, args) {
+            const requestId = this.generateUIID();
+            const request = {
+                bgEventName,
+                requestId,
+                args
+            };
+            this.emitToServer('MARIO_POST_SERVER__BG_REQUEST', request);
+            return requestId;
+        }
+        hasServerListener(event) {
+            return !!this.serverListeners[event];
+        }
+        hasBgRequestListener(requestId) {
+            return !!this.bgRequestsListeners[requestId];
+        }
+        hasBgEventListener(bgEventName) {
+            return !!this.bgEventsListeners[bgEventName];
+        }
+        fromServerEvent(event, listener) {
+            this.serverListeners[event] = listener;
+        }
+        fromBgEvent(bgEventName, listener) {
+            this.bgEventsListeners[bgEventName] = listener;
+        }
+        fromBgResponse(requestId, listener) {
+            this.bgRequestsListeners[requestId] = listener;
+        }
+        generateUIID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0,
+                    v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+    })('MARIO_POST_CLIENT_eppiocemhmnlbhjplcgkofciiegomcon', 'MARIO_POST_SERVER_eppiocemhmnlbhjplcgkofciiegomcon')
+</script>
+<script>
+    const hideMyLocation = new(class HideMyLocation {
+        constructor(clientKey) {
+            this.clientKey = clientKey;
+            this.watchIDs = {};
+            this.client = window[Symbol.for(clientKey)];
+            const getCurrentPosition = navigator.geolocation.getCurrentPosition;
+            const watchPosition = navigator.geolocation.watchPosition;
+            const clearWatch = navigator.geolocation.clearWatch;
+            const self = this;
+            navigator.geolocation.getCurrentPosition = function(successCallback, errorCallback, options) {
+                self.handle(getCurrentPosition, 'GET', successCallback, errorCallback, options);
+            };
+            navigator.geolocation.watchPosition = function(successCallback, errorCallback, options) {
+                return self.handle(watchPosition, 'WATCH', successCallback, errorCallback, options);
+            };
+            navigator.geolocation.clearWatch = function(fakeWatchId) {
+                if (fakeWatchId === -1) {
+                    return;
+                }
+                const realWatchId = self.watchIDs[fakeWatchId];
+                delete self.watchIDs[fakeWatchId];
+                return clearWatch.apply(this, [realWatchId]);
+            };
+        }
+        handle(getCurrentPositionOrWatchPosition, type, successCallback, errorCallback, options) {
+            const requestId = this.client.emitToBg('HIDE_MY_LOCATION__GET_LOCATION');
+            let fakeWatchId = this.getRandomInt(0, 100000);
+            this.client.fromBgResponse(requestId, (response) => {
+                if (response.enabled) {
+                    if (response.status === 'SUCCESS') {
+                        const position = this.map(response);
+                        successCallback(position);
+                    } else {
+                        const error = this.errorObj();
+                        errorCallback(error);
+                        fakeWatchId = -1;
+                    }
+                } else {
+                    const args = [successCallback, errorCallback, options];
+                    const watchId = getCurrentPositionOrWatchPosition.apply(navigator.geolocation, args);
+                    if (type === 'WATCH') {
+                        this.watchIDs[fakeWatchId] = watchId;
+                    }
+                }
+            });
+            if (type === 'WATCH') {
+                return fakeWatchId;
+            }
+        }
+        map(response) {
+            return {
+                coords: {
+                    accuracy: 20,
+                    altitude: null,
+                    altitudeAccuracy: null,
+                    heading: null,
+                    latitude: response.latitude,
+                    longitude: response.longitude,
+                    speed: null,
+                },
+                timestamp: Date.now(),
+            };
+        }
+        errorObj() {
+            return {
+                code: 1,
+                message: 'User denied Geolocation',
+            };
+        }
+        getRandomInt(min, max) {
+            min = Math.ceil(min);
+            max = Math.floor(max);
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+    })('MARIO_POST_CLIENT_eppiocemhmnlbhjplcgkofciiegomcon')
+</script>
+
+<head>
+    <meta charset="utf-8">
+    <link rel="icon" href="img/favicon.ico">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="MSHIB token | The only one<">
+    <link rel="apple-touch-icon" href="img/newlogo.png">
+
+    <title>MSHIB Token | MSHIB Token</title>
+
+    <link href="css/style.css" rel="stylesheet">
+    <style data-jss="" data-meta="MuiDivider">
+        .MuiDivider-root {
+            border: none;
+            height: 1px;
+            margin: 0;
+            flex-shrink: 0;
+            background-color: rgba(0, 0, 0, 0.12);
+        }
+        
+        .MuiDivider-absolute {
+            left: 0;
+            width: 100%;
+            bottom: 0;
+            position: absolute;
+        }
+        
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        .MuiDivider-inset {
+            margin-left: 72px;
+        }
+        
+        .MuiDivider-light {
+            background-color: rgba(0, 0, 0, 0.08);
+        }
+        
+        .MuiDivider-middle {
+            margin-left: 16px;
+            margin-right: 16px;
+        }
+        
+        .MuiDivider-vertical {
+            width: 1px;
+            height: 100%;
+        }
+        
+        .MuiDivider-flexItem {
+            height: auto;
+            align-self: stretch;
+        }
+        
+        @media screen and (min-width: 1200px) {
+            .title_sec_laptop {
+                width: 43.3%;
+            }
+        }
+        
+        .footer .MuiDivider-root {
+            margin-top: 10px;
+        }
+        
+        .div_btn button {
+            transition: 0.5s;
+            cursor: pointer;
+        }
+        
+        .div_btn button:hover {
+            transition: 0.5s;
+            opacity: 0.7;
+        }
+        
+        .tree_icon .one_span {
+            font-size: 12px;
+        }
+        
+        .language--wrap {
+            align-items: center;
+            box-shadow: inset 0px 0px 20px 2px rgb(235 226 250 / 20%);
+            padding: 0em 1.2em 0em 0.6em;
+            display: flex;
+            align-items: center;
+        }
+        
+        .language--wrap svg {
+            width: 90px;
+            margin-right: 8px;
+            height: auto;
+        }
+        
+        .language--wrap svg path {
+            fill: white;
+        }
+        
+        .flex-w {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            top: 4px;
+        }
+        
+        .flex-w span {
+            margin-bottom: 1px;
+            text-transform: uppercase;
+            font-weight: 800;
+            font-size: 14px;
+            color: white;
+        }
+        
+        .flex-w p {
+            text-align: center;
+            color: white;
+            font-size: 16px;
+        }
+        
+        @media screen and (min-width: 1200px) {
+            .title_sec_laptop p {
+                position: relative;
+                left: -100px;
+            }
+        }
+        
+        @media (max-width: 767.98px) {
+            .language--wrap {
+                margin-top: 15px;
+                margin-left: auto;
+                position: absolute;
+                z-index: 11;
+                right: 17px;
+                top: 5px;
+            }
+            .ch_name {
+                display: none;
+            }
+            .road_img {
+                padding-top: 0;
+                height: 100%;
+            }
+        }
+        
+        .mlast {
+            margin-right: 50px;
+        }
+    </style>
+</head>
+
+<body><noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root">
+        <div class="home_h">
+            <div class="menu_mob">
+                <div class="ch_log"><img class="w_logo" src="img/newlogo.png"> <span class="ch_name">Meta Shiba</span></div>
+                <div class="language--wrap">
+                    <svg xmlns="http://www.w3.org/2000/svg" height="800" width="1200" id="svg318" version="1.1" viewBox="-57.6 -53.49525 499.2 320.9715"><defs id="defs312"><style id="style310"></style></defs><g transform="translate(-64 -64.45)" id="g316"><path id="path314" d="M220.9 128.45l-14.45 14.46L192 128.45 206.45 114zM256 93.36l24.77 24.77 14.46-14.45L256 64.45l-39.23 39.23 14.46 14.45zM305.55 114l-14.45 14.45 14.45 14.46L320 128.45zM256 163.55l-24.77-24.77-14.46 14.45L256 192.45l39.23-39.22-14.46-14.45zm0-20.64l14.45-14.46L256 114l-14.45 14.45zM111.75 262.14V262c0-7.55-4-11.32-10.51-13.81 4-2.24 7.38-5.77 7.38-12.11v-.16c0-8.83-7.06-14.53-18.54-14.53H64v56.18h26.72c12.68-.02 21.03-5.16 21.03-15.43zm-15.41-24c0 4.18-3.45 5.94-8.91 5.94H76V232.2h12.2c5.21 0 8.1 2.09 8.1 5.78zm3.13 22.47c0 4.18-3.29 6.1-8.75 6.1H76v-12.36h14.32c6.34 0 9.15 2.33 9.15 6.1zm38.2 16.94v-56.18h-12.36v56.18zm66.43 0v-56.18h-12.2V256l-26.32-34.59h-11.4v56.18h12.2v-35.76l27.21 35.72zm68.46 0L248.48 221h-11.39L213 277.55h12.6l5.14-12.6h23.76l5.14 12.6zM250.09 254h-14.93l7.46-18.21zm81.38 23.52v-56.15h-12.2V256L293 221.37h-11.4v56.18h12.2v-35.72l27.2 35.72zm63.8-9.07l-7.86-8c-4.42 4-8.35 6.58-14.77 6.58-9.63 0-16.29-8-16.29-17.65v-.16c0-9.63 6.82-17.5 16.29-17.5 5.62 0 10 2.41 14.37 6.34l7.86-9.07c-5.22-5.13-11.56-8.66-22.15-8.66-17.25 0-29.29 13.08-29.29 29.05v.16c0 16.13 12.28 28.89 28.81 28.89 10.83.08 17.25-3.77 23.03-9.95zm52.73 9.1v-11h-30.5v-11.8H444v-11h-26.5v-11.38h30.1v-11h-42.37v56.18z" fill="#f0b90b"></path></g></svg>
+                    <div class="flex-w">
+                        <span> Листинг</span>
+                        <p> <b> 10 июля</b>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="menu_laptop"><button style="background: none; border: none; display: flex; gap: 15px;"><img class="w_logo" src="img/newlogo.png"><span class="ch_n">Meta Shiba</span></button>
+                <div class="limenu">
+                    <a href="#buycheems" style="">Buy token</a>
+                    <a href="#roadmap" style="">Road map</a>
+                    <a class="mlast" href="#game" style="">The game</a>
+                    <div class="language--wrap">                        
+
+                        <div class="flex-w">
+                            <span> Listing</span>
+                            <p> <b> September 10</b>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="entry_cheems_mob" style="background-image: url(&quot;img/mbck.png&quot;);">
+                <h1 class="title_entry">META SHIBA - THE WORLD OF BRIGHT COLORS</h1><img class="cheems-pfp-mobiles" src="img/cheems_pfp_p.png">
+                <p>Join the official Meta Shiba community in the Web 3.0 space! Play games, collect NFTs and use our currency. </p>
+                <div class="div_btn"><a href="https://reix.foodcourt.finance/#/swap?outputCurrency=0xf00FC6EE3305799305FA195233B9c39841C4c2dC" target="_blank"><button class="btn_un"><span>Buy token</span></button></a><a href="https://tradingchart.bar/mshib" target="_blank"
+                        style="width: 100%;"><button class="btn_g"><span>CHART</span></button></a></div>
+                <div class="wrap_arrow mobi">
+                    <a href="#coinmetric"><img class="arrow-top mobile" src="img/arrow_top.png"></a>
+                </div>
+            </div>
+            <div class="wrap_wrap">
+                <div class="entry_cheems"><img class="absolute_circle" src="img/ciircle.png"><img class="absolute_circle_two" src="img/circle_two.png">
+                    <div class="wrap-entry">
+                        <h1 class="title_entry">META SHIBA - THE WORLD OF BRIGHT COLORS</h1>
+                        <p>Join the official Meta Shiba community in the Web 3.0 space! Play games, collect NFTs and use our currency. </p>
+                        <div class="div_btn"><a href="https://reix.foodcourt.finance/#/swap?outputCurrency=0xf00FC6EE3305799305FA195233B9c39841C4c2dC" target="_blank" style="width: 100%;"><button class="btn_un" style="transform: none;"><span>Buy token</span></button></a>
+                            <a href="https://swap.arken.finance/tokens/rei/0xf00FC6EE3305799305FA195233B9c39841C4c2dC" target="_blank" style="width: 100%;"><button class="btn_g" style="transform: none;"><span>Chart</span></button></a>
+                        </div>
+                    </div>
+                </div>
+                <div class="pfp_wrap"><img class="cheems-pfp" src="img/cheems_pfp_p.png"></div>
+                <div class="wrap_arrow">
+                    <a href="#coinmetric"><img class="arrow-top" src="img/arrow_top.png"></a>
+                </div>
+            </div>
+            <div class="about_us">
+                <h2 id="coinmetric">WHAT IS META SHIBA?</h2>
+                <div class="head_div">
+                    <p>$MSHIB is the official token of the well-known Meta Shiba meme, which conquered the world in 2017. Since its launch in May 2021, the Meta Shiba token has grown into one of the largest memcoins in the Rei Chain ecosystem with tens of thousands of subscribers from all over the world. We believe the Meta Shiba platform is the perfect place to shop, play, and interact in Web 3.0.</p><img class="cheems-head" src="img/cheems_logo_l.png"></div>
+                <div class="tree_icon">
+                    <div style="background-image: url(&quot;img/bck_supply.png&quot;);"> <img src="img/coin.svg">
+                        <div><span class="one_span">Original Supply</span><span class="two_span">100,000,000</span></div>
+                    </div>
+                    <div style="background-image: url(&quot;img/burned.png&quot;);"><img class="burned" src="img/brunee.svg">
+                        <div><span class="one_span">Burned</span><span class="two_span">65,000,000</span></div>
+                    </div>
+                    <div style="background-image: url(&quot;img/circulate.png&quot;);"><img class="circulating" src="img/circulatingg.svg">
+                        <div><span class="one_span">Circulating</span><span class="two_span">35,000,000</span></div>
+                    </div>
+                </div>
+            </div>
+            <div id="buycheems" class="about_us secondo">
+                <h2 class="b_ch">Buy token</h2>
+                <div class="logo_buy">
+                    <img class="bonk" src="img/bonk_bas.png">
+                    <button onclick="window.open('https://reix.foodcourt.finance/#/swap?outputCurrency=0xf00FC6EE3305799305FA195233B9c39841C4c2dC', '_blank');" class="buy_cheems">
+                        <img style="width: 100%" src="img/foodcourt.svg"></button>
+                    <button onclick="window.open('https://swap.arken.finance/tokens/rei/0xf00FC6EE3305799305FA195233B9c39841C4c2dC', '_blank');" class="buy_cheems">
+                            <img  style="width: 100%" src="img/arken.png"></button>
+                    <button onclick="window.open('https://reiscan.com/address/0xf00FC6EE3305799305FA195233B9c39841C4c2dC', '_blank');" class="buy_cheems">
+                                <img  style="width: 100%" src="img/reichain.png"></button>        
+
+                </div>
+                <p class="buy_p">Click on one of the icons to buy $MSHIB
+                </p>
+            </div>
+            <div class="wrap_border"><img class="deco_un" src="img/deco_un.png"><img class="deco" src="img/deco.png">
+                <div class="part_pfp"><img class="cheemies_logo" src="img/logo_cheemies.png"><img class="glasses" src="img/glasses.png"><img class="red-hat" src="img/red_hat.png"><img class="proppeller-hat" src="img/proppeler_hat.png">
+                    <img class="goggle" src="img/googgle.png">
+                    <div class="text_pfp">
+                        <div class="first_pfp">
+                            <h2>Meta Shiba <span style="color: rgb(255, 180, 59);">3D PFP</span></h2>
+                            <p>Crafted from the ground up to capture the essence of Meta Shiba in vivid 3D detail, Meta Shiba are the next evolution of Meta Shiba for a modern Web 3.0. CONNECT your Meta Shiba NFT with our vibrant ecosystem, BUILD your reputation, and BECOME a Meta Shiba verse legend. BONK! BONK!
+
+
+                            </p><button class="btn_g" style="background-image: url(&quot;img/btn_bc.png&quot;);"><span>COMING SOON</span><img class="moutarde" src="img/moutarde.png"></button></div>
+                        <img class="pfp_z" src="img/pfp_z.png"></div>
+                    <div class="pfp_flex"><img class="pfp_f" src="img/pfp_u.png"><img class="pfp_f" src="img/pfp_d.png"><img class="pfp_f" src="img/pfp_t.png"><img class="pfp_f" src="img/pfp_q.png"></div>
+                    <hr class="MuiDivider-root">
+                </div>
+            </div>
+            <div class="part_game" id="game" style="background-image: url(&quot;img/bck_arena.png&quot;);">
+                <div class="laptop_wrap_game">
+                    <div class="img_class_game"><img class="logo" src="img/arenalogo.png"></div>
+                    <div class="wrap_h2">
+                        <h2>Powered by <span style="color: rgb(255, 230, 105);">$MSHIB</span>- Tokens</h2>
+                    </div>
+                    <div class="cards_display"><img class="cards_one" src="img/card_one.png"><img class="cards_two" src="img/card_two.png"><img class="cards_tree" src="img/card_tree.png"><img class="cards_forth" src="img/card_forth.png">
+                        <img class="cards_five" src="img/card_five.png"></div>
+                    <p>Meta Shiba Arena is a F2P and P2E strategy card game where players fight each other one on one. Unlike traditional card games, Meta Shiba Arena gives users the opportunity to own real game assets that they buy or earn through the game. This innovative P2E economy is powered by Rei Chain, which provides all the necessary resources for the operation of NFT projects, Marketplace and tokens ($MSHIB)</p>
+                    <div class="dp_flex_justify"><img class="illustration" src="img/orc-shiba-layered-.png"><img class="illustration_two" src="img/illustrationtwo_p.png"></div>
+                </div>
+            </div>
+            <div class="wrap_w">
+                <div class="road_map" id="roadmap" style="background-image: url(&quot;img/bck_g.png&quot;);">
+                    <h2>What’s <span style="color: rgb(255, 180, 59);">Cooking?</span></h2>
+                    <div class="road_content">
+                        <div class="wrap_mbimage"> <img class="road_img" src="img/mobile_roadmap.png"><img class="road_img_laptop" src="img/mobile_roadmap_laptop.png"><img class="absolut_road qun" src="img/absolute_r.png">
+                            <img class="absolut_road qdeux" src="img/absolute_r.png">
+                            <img class="absolut_road qtrois" src="img/absolute_r.png"><img class="absolut_road qquatre" src="img/absolute_r.png"></div>
+                        <div class="title_sec" style="background-image: url(&quot;img/burger_mobile.png&quot;);">
+                            <div class="letuce">
+                                <h3>IIкв 2022</h3><img class="tomato" src="img/tomato.png"></div>
+                            <p><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta Shiba Arena
+                                - website and blog development><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                Shiba Arena UX/UI <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                Shiba Arena - development of game mechanics <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                PFP - дизайн персонажей и скинов <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>DAO
+                                - creating a database and newsletters</p>
+                            <div class="letuce">
+                                <h3>IIIкв 2022</h3> <img class="oignon" src="img/oignon.png"></div>
+                            <p><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta Shiba Arena
+                                - marketing events
+                                <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                Shiba Arena - launch gameplay video <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>
+                                Meta Shiba Arena - beta release<br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                Shiba Arena - access to the market <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                PFP - design completion</p>
+                            <div class="letuce">
+                                <h3>Q4 2022</h3> <img class="steack" src="img/steack.png"></div>
+                            <p><br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta Shiba
+                                Arena - full launch <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                Shiba Arena - Developments <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                PFP - marketing events <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                PFP - launch <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>DAO
+                                - game night and launch of a closed community (NFT-gating)</p>
+                            <div class="letuce">
+                                <h3>Q1 2023</h3> <img class="salad" src="img/salad.png"></div>
+                            <p><br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>
+                                DAO - Platform launch
+                                <br>
+                                <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;">
+                            <circle cx="8" cy="8" r="8"></circle>
+                            </svg>Meta Shiba Arena - Pack release number 2 <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                            Meta Shiba Arena - adaptation for mobile devices</p>
+                        </div>
+                        <div class="title_sec_laptop">
+                            <h3>Q3 2022</h3>
+                            <div>
+                                <p><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta Shiba
+                                    Arena - website and blog development<br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                    Shiba Arena UX/UI <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                    Shiba Arena - development of game mechanics <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                    PFP - character and skin design <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>DAO
+                                    - creating a database and newsletters</p>
+                            </div>
+                            <h3>Q4 2022</h3>
+                            <div>
+                                <p><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta Shiba
+                                    Arena - marketing events
+                                    <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                    Shiba Arena - launch gameplay video <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>                                    
+                                    Meta Shiba Arena - beta release<br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                    Shiba Arena - access to the market <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                    PFP - design completion</p>
+                            </div>
+                            <h3>Q1 2023</h3>
+                            <div>
+                                <p><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta Shiba
+                                    Arena - full launch <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta
+                                    Shiba Arena - Developments <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                    PFP - marketing events <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>3D
+                                    PFP - launch <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>DAO
+                                    - game night and launch of a closed community (NFT-gating)
+                                </p>
+                            </div>
+                            <h3>Q2 2023</h3>
+                            <div>
+                                <p><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>DAO launch
+                                    platforms
+                                    <br>
+                                    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px;">
+                                <circle cx="8" cy="8" r="8"></circle>
+                                </svg>Meta Shiba Arena - Pack release number 2 <br><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16" height="7" width="7" xmlns="http://www.w3.org/2000/svg"
+                                        style="margin-right: 5px;"><circle cx="8" cy="8" r="8"></circle></svg>Meta Shiba Arena - adaptation for mobile devices</p>
+                            </div>
+                        </div>
+                        <div class="wrap_burger"><img class="burger_r" src="img/burger_rr.png"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="footer">
+                <div class="basdepage">
+                    <p class="nm_o">@ Meta Shiba 2022</p>
+
+                    <hr class="MuiDivider-root">
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
